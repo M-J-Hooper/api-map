@@ -3,4 +3,5 @@ pub enum ApiMapError {
     HttpError(usize),
     MissingResolver,
     MalformedResolver,
+    MalformedSchema,
 }

@@ -1,8 +1,8 @@
 use crate::{ApiMapResult, error::ApiMapError, context::Context};
 use std::collections::{HashMap};
 use serde::{self, Deserialize, Serialize};
-use serde_json::Value;
-use paperclip::api_v2_schema;
+use serde_json::{Value, Map};
+use paperclip::{api_v2_schema, v2::models::DataType, v2::Schema};
 use hyper::{Request};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -12,23 +12,23 @@ pub struct ResolverDef {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
-struct Source {
-    name: String,
-    operation: String,
-    parameters: HashMap<String, String>,
+pub struct Source {
+    pub name: String,
+    pub operation: String,
+    pub parameters: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
-struct Path {
-    relative: String,
+pub struct Path {
+    pub relative: String,
 
     #[serde(default)]
-    transform: Transform,
+    pub transform: Transform,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
-enum Transform {
+pub enum Transform {
     None,
 }
 
@@ -44,38 +44,51 @@ pub struct ResolvableSchema {
     resolver: Option<ResolverDef>,
 }
 
-impl ResolvableSchema {
-    pub fn resolve(&self, context: &Context<'_>) -> ApiMapResult<&Value> {
-        if self.resolver.is_none() {
-            return Err(ApiMapError::MissingResolver);
-        }
-
-        let r = self.resolver.as_ref().unwrap();
-        let (source, path) = (r.source.as_ref(), r.path.as_ref());
-
-        let mut value = if let Some(s) = source {
-            let req = self.build_request(&s.name, &s.operation)?;
-            context.client.request(req)?
-        } else {
-            context.value
-        };
-
-        if let Some(p) = path {
-            value = match value.pointer(&p.relative) {
-                Some(v) => v,
-                None => return Err(ApiMapError::MissingField),
-            };
-        }
-
-        let next_context = Context { client: context.client, value };
-        self.process_input(value, &next_context)
+pub fn resolve(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value> {
+    if context.schema.resolver.is_none() {
+        return Err(ApiMapError::MissingResolver);
     }
 
-    fn process_input(&self, input: &Value, context: &Context<'_>) -> ApiMapResult<&Value> {
-        Ok(&Value::Null)
+    let r = context.schema.resolver.as_ref().unwrap();
+    let (source, path) = (r.source.as_ref(), r.path.as_ref());
+
+    let mut next_context = context.clone();
+    if let Some(s) = source {
+        next_context = context.push_request(s)?;
+    } 
+
+    if let Some(p) = path {
+        next_context = context.push_path(p)?;
     }
 
-    fn build_request(&self, name: &str, operation: &str) -> ApiMapResult<Request<&Value>> {
-        Ok(Request::new(&Value::Null)) // Use swagger spec contruct request
+    process(&next_context)
+}
+
+fn process(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value> {
+    match context.schema.data_type {
+        Some(t) => {
+            match t {
+                DataType::Object => process_object(context),
+                DataType::Array => process_array(context),
+                _ => unimplemented!(),
+            }
+        },
+        None => Err(ApiMapError::MalformedSchema),
     }
+}
+
+fn process_object(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value> {
+    let mut map = Map::new();
+    for (prop, prop_context) in context.push_properties()? {
+        map.insert(prop, resolve(&prop_context)?);
+    }
+    Ok(Value::Object(map))
+}
+
+fn process_array(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value> {
+    let mut v = Vec::new();
+    for c in context.push_items()? {
+        v.push(resolve(&c)?);
+    }
+    Ok(Value::Array(v))
 }
