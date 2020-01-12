@@ -1,0 +1,70 @@
+{
+    "swagger": "2.0",
+    "paths": {
+        "/animals/{id}": {
+            "get": {
+                "tags": [
+                    "animal"
+                ],
+                "summary": "Find animal by ID",
+                "description": "Returns a single animal",
+                "operationId": "getAnimalById",
+                "produces": [
+                    "application/json"
+                ],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of pet to return",
+                        "required": true,
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "successful operation",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "identifier": {
+                                    "type": "integer",
+                                    "format": "int64",
+                                    "resolver": {
+                                        "type": "path",
+                                        "name": "id"
+                                    }
+                                },
+                                "nickname": {
+                                    "type": "string",
+                                    "resolver": {
+                                        "type": "path",
+                                        "name": "name"
+                                    }
+                                }
+                            },
+                            "resolver": {
+                                "type": "request",
+                                "name": "Swagger-Petstore-1.0.3",
+                                "operation": "getPetById"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid ID supplied"
+                    },
+                    "404": {
+                        "description": "Animal not found"
+                    }
+                },
+                "security": [
+                    {
+                        "api_key": []
+                    }
+                ]
+            }
+        }
+    },
+    "definitions": {}
+}
