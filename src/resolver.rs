@@ -45,22 +45,17 @@ pub struct ResolvableSchema {
 }
 
 pub fn resolve(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value> {
-    if context.schema.resolver.is_none() {
-        return Err(ApiMapError::MissingResolver);
-    }
-
-    let r = context.schema.resolver.as_ref().unwrap();
-    let (source, path) = (r.source.as_ref(), r.path.as_ref());
-
     let mut next_context = context.clone();
-    if let Some(s) = source {
-        next_context = context.push_request(s)?;
-    } 
-
-    if let Some(p) = path {
-        next_context = context.push_path(p)?;
+    if let Some(ref r) = context.schema.resolver {
+        let (source, path) = (r.source.as_ref(), r.path.as_ref());
+        
+        if let Some(s) = source {
+            next_context = context.push_request(s)?;
+        }
+        if let Some(p) = path {
+            next_context = context.push_path(p)?;
+        }
     }
-
     process(&next_context)
 }
 
@@ -70,11 +65,17 @@ fn process(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value> {
             match t {
                 DataType::Object => process_object(context),
                 DataType::Array => process_array(context),
-                _ => unimplemented!(),
+                _ => finalise(context),
             }
         },
         None => Err(ApiMapError::MalformedSchema),
     }
+}
+
+fn finalise(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value> {
+    Ok(context.value.clone())
+    // TODO: Check data type against json type
+    // TODO: Perform transforms here
 }
 
 fn process_object(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value> {
@@ -91,4 +92,36 @@ fn process_array(context: &Context<'_, ResolvableSchema>) -> ApiMapResult<Value>
         v.push(resolve(&c)?);
     }
     Ok(Value::Array(v))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::Client;
+
+    #[test]
+    fn path()  {
+        let schema: ResolvableSchema = serde_json::from_str(r#"{ "type": "string", "resolver": { "path": { "relative": "/x/y/z" }}}"#).unwrap();
+        let value: Value = serde_json::from_str(r#"{ "x": { "y": { "z": "hello" }}}"#).unwrap();
+
+        let client = Client::new();
+        let context = Context::new(schema, &value, &client);
+
+        assert_eq!(r#""hello""#, resolve(&context).unwrap().to_string());
+    }
+
+    #[test]
+    fn object()  {
+        let value: Value = serde_json::from_str(r#"{ "a": 42, "b": "life" }"#).unwrap();
+        let schema: ResolvableSchema = serde_json::from_str(r#"{ "type": "object", "properties": {
+            "aaa": { "type": "number", "resolver": { "path": { "relative": "/a" }}},
+            "bbb": { "type": "string", "resolver": { "path": { "relative": "/b" }}}
+        }}"#).unwrap();
+
+        let client = Client::new();
+        let context = Context::new(schema, &value, &client);
+
+        assert_eq!(r#"{"aaa":42,"bbb":"life"}"# , resolve(&context).unwrap().to_string());
+    }
 }

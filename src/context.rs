@@ -2,7 +2,7 @@ use crate::{
     ApiMapResult, 
     error::ApiMapError, 
     client::Client, 
-    resolver::{Source, Path, ResolvableSchema}
+    resolver::{Source, Path},
 };
 use std::collections::HashMap;
 use paperclip::v2::{Schema};
@@ -13,6 +13,12 @@ pub struct Context<'a, T> {
     pub client: &'a Client,
     pub value: &'a Value,
     pub schema: T,
+}
+
+impl<'a, T> Context<'a, T> {
+    pub fn new(schema: T, value: &'a Value, client: &'a Client) -> Context<'a, T> {
+        Context { schema, value, client }
+    }
 }
 
 impl<'a, T> Context<'a, T> where T: Schema + Clone {
